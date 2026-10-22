@@ -2,6 +2,7 @@ import asyncio
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from app.async_utils import run_in_thread
+from app.config import is_registration_enabled, set_registration_enabled, ADMIN_SECRET_KEY
 from app.auth import (
     is_https_request,
     set_session_cookie,
@@ -21,8 +22,51 @@ from app.crud import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+@router.get("/config")
+async def api_auth_config():
+    """Returns current authentication configuration (whether registration is open)."""
+    return {
+        "status": "ok",
+        "allow_registration": is_registration_enabled(),
+    }
+
+
+@router.post("/admin/registration")
+async def api_admin_toggle_registration(request: Request):
+    """Admin endpoint to turn registration ON or OFF dynamically."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    secret = (body.get("admin_key") or request.headers.get("X-Admin-Key") or "").strip()
+    if not secret or secret != ADMIN_SECRET_KEY:
+        return JSONResponse({"status": "error", "message": "Unauthorized: Invalid admin key"}, status_code=401)
+
+    new_state = body.get("enabled")
+    if new_state is None:
+        return JSONResponse({"status": "error", "message": "Missing 'enabled' parameter (true/false)"}, status_code=400)
+
+    current = set_registration_enabled(bool(new_state))
+    return {
+        "status": "ok",
+        "message": f"Account registration is now {'ENABLED' if current else 'DISABLED'}",
+        "allow_registration": current,
+    }
+
+
 @router.post("/register")
 async def api_register(request: Request, response: Response):
+    # Enforce admin registration toggle
+    if not is_registration_enabled():
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": "New account registration is currently disabled by administrator.",
+                "registration_disabled": True,
+            },
+            status_code=403,
+        )
+
     try:
         data = await request.json()
     except Exception:

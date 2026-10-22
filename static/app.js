@@ -205,8 +205,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   preloadKeypressSounds();
   renderAvatarPresets();
 
-  const popover = document.getElementById('emojiPopover');
-  if (popover) parseEmojisInDOM(popover);
+  // Check if admin allows new account creation
+  await checkAuthConfig();
 
   // Validate persistent session cookie on start
   await checkAuthStatus();
@@ -336,6 +336,25 @@ function renderAvatarPresets() {
   }
 }
 
+let allowRegistration = false;
+
+async function checkAuthConfig() {
+  try {
+    const res = await fetch('/api/auth/config');
+    if (res.ok) {
+      const data = await res.json();
+      allowRegistration = Boolean(data.allow_registration);
+      if (authTabRegister) {
+        authTabRegister.style.display = allowRegistration ? 'block' : 'none';
+      }
+    }
+  } catch (err) {
+    if (authTabRegister) {
+      authTabRegister.style.display = 'none';
+    }
+  }
+}
+
 function setupAuthListeners() {
   // Tabs
   if (authTabLogin && authTabRegister) {
@@ -347,7 +366,12 @@ function setupAuthListeners() {
       if (loginFeedback) loginFeedback.textContent = '';
     });
 
-    authTabRegister.addEventListener('click', () => {
+    authTabRegister.addEventListener('click', (e) => {
+      if (!allowRegistration) {
+        e.preventDefault();
+        showToast('New account creation is currently disabled by administrator 🔒', 'info');
+        return;
+      }
       authTabRegister.classList.add('active');
       authTabLogin.classList.remove('active');
       if (loginForm) loginForm.style.display = 'none';
@@ -402,7 +426,10 @@ function setupAuthListeners() {
       const username = regUsernameInput ? regUsernameInput.value.trim() : '';
       const displayName = regDisplayNameInput ? regDisplayNameInput.value.trim() : '';
       const password = regPasswordInput ? regPasswordInput.value.trim() : '';
-      if (!username || !password) return;
+      if (!allowRegistration) {
+        if (regFeedback) regFeedback.textContent = 'New account registration is currently disabled by administrator.';
+        return;
+      }
 
       if (regFeedback) {
         regFeedback.textContent = 'Creating account...';
