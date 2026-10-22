@@ -100,7 +100,7 @@ async def broadcast_presence(user_key: str, status: str, last_seen_iso: Optional
 
 
 # ─────────────────────────────────────────────────────────────
-# WebSocket Real-Time Chat & Media Endpoint
+# WebSocket Real-Time Chat & Media Endpoint (Multi-Device Aware)
 # ─────────────────────────────────────────────────────────────
 @app.websocket("/ws/{user_key}")
 async def websocket_endpoint(websocket: WebSocket, user_key: str):
@@ -111,21 +111,19 @@ async def websocket_endpoint(websocket: WebSocket, user_key: str):
 
     await websocket.accept()
 
-    # Gracefully replace existing connection if user reconnected or refreshed
-    old_ws = connections.get(user_key)
-    if old_ws is not None:
-        try:
-            await old_ws.close(code=1000, reason="Replaced by new connection")
-        except Exception:
-            pass
+    # Register this device connection (supports multiple concurrent devices per account)
+    user_socks = connections.setdefault(user_key, set())
+    was_offline = (len(user_socks) == 0)
+    user_socks.add(websocket)
+    device_count = len(user_socks)
 
-    connections[user_key] = websocket
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     asyncio.create_task(run_in_thread(update_user_presence, user_key, now_iso))
-    logger.info(f"[+] {user_key} connected (total online: {len(connections)})")
+    logger.info(f"[+] {user_key} connected device (devices: {device_count}, online users: {len(connections)})")
 
-    # Broadcast online presence
-    await broadcast_presence(user_key, "online")
+    # If this is the user's first active device, announce online presence to others
+    if was_offline:
+        await broadcast_presence(user_key, "online")
 
     try:
         while True:
@@ -143,8 +141,8 @@ async def websocket_endpoint(websocket: WebSocket, user_key: str):
                 now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
                 asyncio.create_task(run_in_thread(update_user_presence, user_key, now_iso))
                 partner = (data.get("partner") or "").strip().lower()
-                is_p_online = partner in connections if partner else False
-                p_last_seen = get_user_presence(partner) if partner and not is_p_online else None
+                is_p_online = bool(connections.get(partner)) if partner else False
+                p_last_seen = await run_in_thread(get_user_presence, partner) if partner and not is_p_online else None
                 await safe_send(
                     websocket,
                     {
@@ -156,13 +154,21 @@ async def websocket_endpoint(websocket: WebSocket, user_key: str):
                 )
                 continue
 
-            # Forward message directly to recipient
+            # Forward message directly to recipient (all active devices)
             data["from"] = user_key
             is_delivered = False
             if target_user:
                 is_delivered = await send_to_user(target_user, data)
 
-            # Instantly acknowledge message to sender for zero-latency delivery receipts
+            # Sync message to sender's OTHER devices (real-time cross-device sync)
+            if target_user and msg_type in ("chat", "voice", "image"):
+                sync_payload = dict(data)
+                sync_payload["self_sync"] = True
+                sync_payload["from"] = user_key
+                sync_payload["to"] = target_user
+                await send_to_user(user_key, sync_payload, exclude_ws=websocket)
+
+            # Instantly acknowledge message to originating sender device
             client_id = data.get("id") or data.get("client_msg_id")
             if client_id and msg_type in ("chat", "voice", "image"):
                 now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -187,19 +193,33 @@ async def websocket_endpoint(websocket: WebSocket, user_key: str):
                 await send_to_user(target_user, data)
                 ids = data.get("ids") or ([data.get("msg_id")] if data.get("msg_id") else None)
                 is_all = data.get("all", False)
+                # Sync seen status to sender's other devices
+                await send_to_user(user_key, {"type": "seen_sync", "opponent": target_user, "ids": ids, "all": is_all}, exclude_ws=websocket)
                 asyncio.create_task(
                     background_mark_seen(sender=target_user, recipient=user_key, ids=None if is_all else ids)
                 )
 
+            # Flying balloon emoji reaction sync to recipient and self devices
+            if msg_type == "flying_emoji" and target_user:
+                await send_to_user(target_user, data)
+                await send_to_user(user_key, data, exclude_ws=websocket)
+
     except WebSocketDisconnect:
-        if connections.get(user_key) is websocket:
-            connections.pop(user_key, None)
-            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-            asyncio.create_task(run_in_thread(update_user_presence, user_key, now_iso))
-            logger.info(f"[-] {user_key} disconnected (total online: {len(connections)})")
-            await broadcast_presence(user_key, "offline", now_iso)
-        else:
-            logger.info(f"[-] {user_key} stale connection closed")
+        pass
+    except Exception as e:
+        logger.warning(f"[WS] Exception in websocket loop for {user_key}: {e}")
+    finally:
+        user_socks = connections.get(user_key)
+        if user_socks and websocket in user_socks:
+            user_socks.discard(websocket)
+            if not user_socks:
+                connections.pop(user_key, None)
+                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+                asyncio.create_task(run_in_thread(update_user_presence, user_key, now_iso))
+                logger.info(f"[-] {user_key} all devices disconnected")
+                await broadcast_presence(user_key, "offline", now_iso)
+            else:
+                logger.info(f"[-] {user_key} device disconnected ({len(user_socks)} remaining)")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -208,7 +228,7 @@ async def websocket_endpoint(websocket: WebSocket, user_key: str):
 @app.get("/api/presence/{user_key}")
 async def api_get_presence(user_key: str):
     user_key = user_key.strip().lower()
-    is_online = user_key in connections
+    is_online = bool(connections.get(user_key))
     last_seen = await run_in_thread(get_user_presence, user_key) if not is_online else None
     return JSONResponse({
         "status": "ok",
@@ -229,7 +249,7 @@ async def get_messages_opponent(opponent: str, request: Request):
         return JSONResponse({"status": "error", "message": "User not authenticated"}, status_code=401)
 
     messages = await run_in_thread(get_conversation, user_key, opponent)
-    is_online = opponent in connections
+    is_online = bool(connections.get(opponent))
     last_seen = await run_in_thread(get_user_presence, opponent) if not is_online else None
 
     return JSONResponse({
@@ -257,6 +277,7 @@ async def api_messages_seen(request: Request):
     if user_key and opponent:
         asyncio.create_task(background_mark_seen(sender=opponent, recipient=user_key, ids=None if is_all else ids))
         await send_to_user(opponent, {"type": "seen", "from": user_key, "ids": ids, "all": is_all})
+        await send_to_user(user_key, {"type": "seen_sync", "opponent": opponent, "ids": ids, "all": is_all})
         return JSONResponse({"status": "ok"})
     return JSONResponse({"status": "error", "message": "Missing parameters"}, status_code=400)
 

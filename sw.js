@@ -8,7 +8,7 @@
  * - Cache fallback is strictly capped at 1 hour (3600 seconds). Any asset older than 1 hour is evicted.
  */
 
-const CACHE_NAME = 'livechat-v2.0.0';
+const CACHE_NAME = 'livechat-v2.1.0';
 const MAX_CACHE_AGE_MS = 60 * 60 * 1000; // 1 hour (3600s)
 
 // Baseline app shell for initial offline installability

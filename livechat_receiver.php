@@ -632,7 +632,7 @@ if ($action === 'clear' || $action === 'empty') {
 // ─────────────────────────────────────────────────────────────
 // 3. GET: Retrieve messages & presence between two users
 // ─────────────────────────────────────────────────────────────
-if ($method === 'GET' || $action === 'get') {
+if ($action === 'get' || ($method === 'GET' && (empty($action) || $action === 'get'))) {
     $authUser = getAuthenticatedUser($pdo);
     $user1 = isset($_GET['user1']) ? strtolower(trim($_GET['user1'])) : ($authUser ? $authUser['username'] : '');
     $user2 = isset($_GET['user2']) ? strtolower(trim($_GET['user2'])) : (isset($_GET['opponent']) ? strtolower(trim($_GET['opponent'])) : '');
@@ -759,6 +759,31 @@ if ($method === 'POST') {
     }
     if ($msgType === 'image' && !empty($textContent)) {
         $textContent = saveImageFile($textContent);
+    }
+
+    // Deduplicate if this client_msg_id was already persisted
+    if (!empty($clientMsgId)) {
+        $existStmt = $pdo->prepare("SELECT id, text_content, media_duration, client_time, seen FROM messages WHERE client_msg_id = :cid AND sender = :s LIMIT 1");
+        $existStmt->execute([':cid' => $clientMsgId, ':s' => $sender]);
+        $existing = $existStmt->fetch();
+        if ($existing) {
+            echo json_encode([
+                'status'  => 'ok',
+                'message' => 'Message already saved',
+                'data'    => [
+                    'id'             => (int)$existing['id'],
+                    'sender'         => $sender,
+                    'recipient'      => $recipient,
+                    'msg_type'       => $msgType,
+                    'text_content'   => $existing['text_content'],
+                    'media_duration' => $existing['media_duration'],
+                    'client_time'    => $existing['client_time'],
+                    'client_msg_id'  => $clientMsgId,
+                    'seen'           => (bool)$existing['seen'],
+                ]
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     $insStmt = $pdo->prepare("

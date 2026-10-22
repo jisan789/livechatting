@@ -20,7 +20,7 @@ async def api_get_users(request: Request):
     # Attach live online flag from active connections
     for u in users_list:
         uname = u["username"]
-        u["is_online"] = uname in connections
+        u["is_online"] = bool(connections.get(uname))
 
     return {"status": "ok", "users": users_list}
 

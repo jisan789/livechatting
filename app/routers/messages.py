@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from app.auth import extract_token_from_request, verify_session_token
 from app.crud import get_conversation, clear_conversation, mark_messages_seen
-from app.websocket import connections, safe_send
+from app.websocket import connections, safe_send, send_to_user
 from app.async_utils import run_in_thread
 
 logger = logging.getLogger("livechat.messages")
@@ -58,9 +58,10 @@ async def api_clear_messages(request: Request):
     if not ok:
         return JSONResponse({"status": "error", "message": "Failed to clear conversation"}, status_code=500)
 
-    # Notify connected opponent in real-time
-    if user2 in connections:
-        await safe_send(connections[user2], {"type": "chat_cleared", "from": user1})
+    # Notify connected opponent in real-time across all their devices
+    await send_to_user(user2, {"type": "chat_cleared", "from": user1})
+    # Also notify sender's other devices so they clear simultaneously
+    await send_to_user(user1, {"type": "chat_cleared", "from": user2, "self_cleared": True})
 
     return {
         "status": "ok",

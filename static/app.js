@@ -1604,9 +1604,20 @@ function handleWsMessage(msg) {
       }
       break;
 
-    // ── Chat message ──────────────────────────────
+    // ── Chat message (Cross-Device Synchronized) ─
     case 'chat':
-      if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
+      if (msg.from === activeUser || msg.self_sync) {
+        const targetKey = msg.to || msg.recipient;
+        if (currentPartner && currentPartner.key === targetKey && currentView === 'conversation') {
+          appendMessage(msg.text, 'outgoing', msg.time, msg.id, 'sent', false, msg.reply_to);
+        } else if (targetKey) {
+          const u = registeredUsersList.find(item => item.username === targetKey);
+          if (u) {
+            u.last_message = { text_content: msg.text, msg_type: 'chat', client_time: msg.time, seen: true, sender: activeUser };
+            renderChatsList();
+          }
+        }
+      } else if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
         receiveIncomingMessage(msg.text, msg.time, msg.id, msg.reply_to);
         notifyMessageSeen(msg.id);
       } else {
@@ -1619,13 +1630,24 @@ function handleWsMessage(msg) {
       }
       break;
 
-    // ── Voice note (Live WebSocket) ───────────────
+    // ── Voice note (Live WebSocket & Multi-Device) ──
     case 'voice': {
       const voiceSrc = msg.audio || msg.text || msg.text_content;
       const voiceDur = msg.duration || msg.media_duration || 1;
       const voiceTime = msg.time || msg.client_time;
       const voiceId = msg.id || msg.client_msg_id;
-      if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
+      if (msg.from === activeUser || msg.self_sync) {
+        const targetKey = msg.to || msg.recipient;
+        if (currentPartner && currentPartner.key === targetKey && currentView === 'conversation') {
+          appendVoiceMessage(voiceSrc, voiceDur, 'outgoing', voiceTime, voiceId, msg.waveform, 'sent', false, msg.reply_to);
+        } else if (targetKey) {
+          const u = registeredUsersList.find(item => item.username === targetKey);
+          if (u) {
+            u.last_message = { msg_type: 'voice', text_content: 'Voice message', client_time: voiceTime, seen: true, sender: activeUser };
+            renderChatsList();
+          }
+        }
+      } else if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
         receiveIncomingVoice(voiceSrc, voiceDur, voiceTime, voiceId, msg.waveform, msg.reply_to);
         if (voiceId) notifyMessageSeen(voiceId);
       } else {
@@ -1639,9 +1661,20 @@ function handleWsMessage(msg) {
       break;
     }
 
-    // ── Image message (Live WebSocket) ────────────
+    // ── Image message (Live WebSocket & Multi-Device) ─
     case 'image':
-      if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
+      if (msg.from === activeUser || msg.self_sync) {
+        const targetKey = msg.to || msg.recipient;
+        if (currentPartner && currentPartner.key === targetKey && currentView === 'conversation') {
+          appendImageMessage(msg.image || msg.text_content, 'outgoing', msg.time, msg.id, 'sent', false, msg.reply_to);
+        } else if (targetKey) {
+          const u = registeredUsersList.find(item => item.username === targetKey);
+          if (u) {
+            u.last_message = { msg_type: 'image', client_time: msg.time, seen: true, sender: activeUser };
+            renderChatsList();
+          }
+        }
+      } else if (currentPartner && msg.from === currentPartner.key && currentView === 'conversation') {
         receiveIncomingImage(msg.image, msg.time, msg.id, msg.reply_to);
         notifyMessageSeen(msg.id);
       } else {
@@ -1661,7 +1694,7 @@ function handleWsMessage(msg) {
 
     // ── Chat cleared ──────────────────────────────
     case 'chat_cleared':
-      if (!msg.from || msg.from === currentPartner.key) {
+      if (!msg.from || msg.from === currentPartner.key || (msg.self_cleared && currentPartner.key === msg.from)) {
         clearChatDOM();
         showToast('Chat history cleared', 'info');
       }
@@ -1703,6 +1736,22 @@ function handleWsMessage(msg) {
     case 'mark_seen':
       markOutgoingMessagesSeen(msg.msg_id || msg.id, msg.ids, msg.all);
       break;
+
+    // ── Seen sync across my devices ───────────────
+    case 'seen_sync': {
+      const oppKey = msg.opponent || msg.from;
+      if (oppKey) {
+        const u = registeredUsersList.find(item => item.username === oppKey);
+        if (u && u.last_message) {
+          u.last_message.seen = true;
+          renderChatsList();
+        }
+        if (currentPartner && currentPartner.key === oppKey) {
+          markOutgoingMessagesSeen(null, msg.ids, msg.all !== false);
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -4313,7 +4362,10 @@ document.addEventListener('visibilitychange', () => {
       } else {
         wsSend({ type: 'ping' });
       }
-      loadChatHistory(activeUser);
+      if (currentPartner && currentPartner.key && currentView === 'conversation') {
+        loadChatHistory(currentPartner.key);
+      }
+      fetchRegisteredUsers();
       refreshOpponentPresence();
     }
   }
@@ -4324,7 +4376,10 @@ window.addEventListener('focus', () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       connectWebSocket(activeUser);
     }
-    loadChatHistory(activeUser);
+    if (currentPartner && currentPartner.key && currentView === 'conversation') {
+      loadChatHistory(currentPartner.key);
+    }
+    fetchRegisteredUsers();
     refreshOpponentPresence();
   }
 });
@@ -4332,7 +4387,10 @@ window.addEventListener('focus', () => {
 window.addEventListener('online', () => {
   if (activeUser) {
     connectWebSocket(activeUser);
-    loadChatHistory(activeUser);
+    if (currentPartner && currentPartner.key && currentView === 'conversation') {
+      loadChatHistory(currentPartner.key);
+    }
+    fetchRegisteredUsers();
     refreshOpponentPresence();
   }
 });

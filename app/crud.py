@@ -1,79 +1,106 @@
 import json
+import time
 import logging
 import datetime
-import urllib.parse
-import http.client
-import ssl
-import threading
-from urllib.parse import urlparse
 from typing import List, Dict, Any, Optional, Tuple
+import httpx
 from app.config import PHP_STORAGE_URL
 
 logger = logging.getLogger("livechat.crud")
 
+# ─────────────────────────────────────────────────────────────
+# Resilient HTTP Client with Connection Pooling & Retries
+# ─────────────────────────────────────────────────────────────
+_httpx_client: Optional[httpx.Client] = None
 
-class FastPHPClient:
-    """Thread-safe persistent keep-alive HTTP/1.1 client for high-throughput PHP backend sync."""
+def get_http_client() -> httpx.Client:
+    global _httpx_client
+    if _httpx_client is None or _httpx_client.is_closed:
+        _httpx_client = httpx.Client(
+            timeout=httpx.Timeout(20.0, connect=8.0),
+            limits=httpx.Limits(max_keepalive_connections=25, max_connections=50, keepalive_expiry=30.0),
+            headers={"User-Agent": "LiveChat-Engine/2.0"},
+            follow_redirects=True,
+        )
+    return _httpx_client
 
-    def __init__(self, url: str):
-        self.url = url
-        self.parsed = urlparse(url)
-        self.host = self.parsed.hostname or "localhost"
-        self.port = self.parsed.port or (443 if self.parsed.scheme == "https" else 80)
-        self.is_ssl = self.parsed.scheme == "https"
-        self.path = self.parsed.path or "/"
-        self.ssl_ctx = ssl.create_default_context() if self.is_ssl else None
-        self._local = threading.local()
 
-    def _get_connection(self):
-        conn = getattr(self._local, "conn", None)
-        if conn is None:
-            if self.is_ssl:
-                conn = http.client.HTTPSConnection(self.host, self.port, context=self.ssl_ctx, timeout=12)
+def _php_call(params: Dict[str, Any], method: str = "POST", timeout: float = 15.0) -> Optional[Dict[str, Any]]:
+    if not PHP_STORAGE_URL:
+        return None
+
+    client = get_http_client()
+    method_upper = method.upper()
+
+    for attempt in range(3):
+        try:
+            if method_upper == "POST":
+                resp = client.post(PHP_STORAGE_URL, json=params, timeout=timeout)
             else:
-                conn = http.client.HTTPConnection(self.host, self.port, timeout=12)
-            self._local.conn = conn
-        return conn
+                resp = client.get(PHP_STORAGE_URL, params=params, timeout=timeout)
 
-    def call(self, params: Dict[str, Any], method: str = "POST", timeout: int = 15) -> Optional[Dict[str, Any]]:
-        for attempt in range(2):
-            conn = self._get_connection()
-            try:
-                headers = {"User-Agent": "LiveChat-Fast/2.0"}
-                if method == "POST":
-                    body = json.dumps(params).encode("utf-8")
-                    headers["Content-Type"] = "application/json"
-                    headers["Content-Length"] = str(len(body))
-                    headers["Connection"] = "keep-alive"
-                    conn.request("POST", self.path, body=body, headers=headers)
-                else:
-                    query = urllib.parse.urlencode(params)
-                    path = f"{self.path}?{query}"
-                    headers["Connection"] = "keep-alive"
-                    conn.request("GET", path, headers=headers)
-
-                resp = conn.getresponse()
-                data = resp.read().decode("utf-8")
-                return json.loads(data)
-            except Exception as e:
+            if resp.status_code == 200:
                 try:
-                    conn.close()
-                except Exception:
-                    pass
-                self._local.conn = None
-                if attempt == 1:
-                    logger.error(f"[CRUD] Failed communicating with PHP backend after retry: {e}")
+                    return resp.json()
+                except Exception as json_err:
+                    logger.warning(f"[CRUD] Failed to decode JSON from PHP (status {resp.status_code}): {resp.text[:120]} ({json_err})")
                     return None
-        return None
+            else:
+                logger.warning(f"[CRUD] PHP responded with HTTP {resp.status_code} (attempt {attempt + 1}/3)")
+        except (httpx.RequestError, httpx.TimeoutException) as exc:
+            logger.warning(f"[CRUD] Network error calling PHP backend ({attempt + 1}/3): {exc}")
+            if attempt < 2:
+                time.sleep(0.15 * (attempt + 1))
+        except Exception as e:
+            logger.error(f"[CRUD] Unexpected error contacting PHP storage: {e}")
+            break
+
+    return None
 
 
-_client = FastPHPClient(PHP_STORAGE_URL) if PHP_STORAGE_URL else None
+# ─────────────────────────────────────────────────────────────
+# In-Memory Fast Caching & Message Resilience Buffer
+# ─────────────────────────────────────────────────────────────
+# 1. Session verification cache: {token: (user_dict, timestamp)}
+_SESSION_CACHE: Dict[str, Tuple[Dict[str, Any], float]] = {}
+SESSION_CACHE_TTL = 300.0  # 5 minutes
+
+# 2. Presence last-seen cache: {username: (last_seen_str, timestamp)}
+_PRESENCE_CACHE: Dict[str, Tuple[str, float]] = {}
+PRESENCE_CACHE_TTL = 90.0  # 90 seconds
+
+# 3. Recent messages buffer to guarantee zero message loss during race conditions
+# key: "user_a:user_b" (sorted alphabetically), value: list of recent message dicts
+_RECENT_MESSAGES_BUFFER: Dict[str, List[Dict[str, Any]]] = {}
+BUFFER_MAX_PER_PAIR = 50
 
 
-def _php_call(params: Dict[str, Any], method: str = "POST", timeout: int = 15) -> Optional[Dict[str, Any]]:
-    if not _client:
-        return None
-    return _client.call(params, method=method, timeout=timeout)
+def _get_pair_key(u1: str, u2: str) -> str:
+    s1, s2 = u1.strip().lower(), u2.strip().lower()
+    return f"{min(s1, s2)}:{max(s1, s2)}"
+
+
+def _buffer_recent_message(msg: Dict[str, Any]):
+    sender = (msg.get("sender") or "").strip().lower()
+    recipient = (msg.get("recipient") or "").strip().lower()
+    if not sender or not recipient:
+        return
+
+    pair_key = _get_pair_key(sender, recipient)
+    buffer = _RECENT_MESSAGES_BUFFER.setdefault(pair_key, [])
+
+    # Avoid duplicate by client_msg_id
+    cid = msg.get("client_msg_id") or msg.get("id")
+    if cid:
+        for existing in buffer:
+            if existing.get("client_msg_id") == cid or str(existing.get("id")) == str(cid):
+                # Update in place
+                existing.update(msg)
+                return
+
+    buffer.append(dict(msg))
+    if len(buffer) > BUFFER_MAX_PER_PAIR:
+        _RECENT_MESSAGES_BUFFER[pair_key] = buffer[-BUFFER_MAX_PER_PAIR:]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -104,12 +131,16 @@ def register_user(
         "passkey": str(passkey).strip() if passkey else None,
     }
 
-    resp = _php_call(payload, method="POST")
+    resp = _php_call(payload, method="POST", timeout=15.0)
     if not resp:
         return None, None, "External authentication service unreachable."
 
     if resp.get("status") == "ok":
-        return resp.get("user"), resp.get("token"), None
+        user = resp.get("user")
+        token = resp.get("token")
+        if token and user:
+            _SESSION_CACHE[token] = (user, time.time())
+        return user, token, None
     return None, None, resp.get("message") or "Registration failed."
 
 
@@ -127,31 +158,50 @@ def authenticate_user(username: str, password: str) -> Tuple[Optional[Dict[str, 
         "password": password,
     }
 
-    resp = _php_call(payload, method="POST")
+    resp = _php_call(payload, method="POST", timeout=15.0)
     if not resp:
         return None, None, "External authentication service unreachable."
 
     if resp.get("status") == "ok":
-        return resp.get("user"), resp.get("token"), None
+        user = resp.get("user")
+        token = resp.get("token")
+        if token and user:
+            _SESSION_CACHE[token] = (user, time.time())
+        return user, token, None
     return None, None, resp.get("message") or "Invalid credentials."
 
 
 def verify_session_token(token: str) -> Optional[Dict[str, Any]]:
-    """Validate session token directly with external PHP server."""
+    """Validate session token with fast in-memory caching and external PHP fallback."""
     if not token or len(token) < 16:
         return None
 
-    resp = _php_call({"action": "session_verify", "token": token}, method="GET")
+    now = time.time()
+    # Check fast cache
+    cached = _SESSION_CACHE.get(token)
+    if cached:
+        user_data, cached_at = cached
+        if now - cached_at < SESSION_CACHE_TTL:
+            return user_data
+
+    # Query external server
+    resp = _php_call({"action": "session_verify", "token": token}, method="GET", timeout=10.0)
     if resp and resp.get("status") == "ok" and resp.get("user"):
-        return resp["user"]
+        user = resp["user"]
+        _SESSION_CACHE[token] = (user, now)
+        return user
+
+    # If verification failed or expired, purge cache
+    _SESSION_CACHE.pop(token, None)
     return None
 
 
 def delete_session(token: str) -> bool:
-    """Revoke session on external PHP server."""
+    """Revoke session on external PHP server and in-memory cache."""
     if not token:
         return False
-    resp = _php_call({"action": "logout", "token": token}, method="GET")
+    _SESSION_CACHE.pop(token, None)
+    resp = _php_call({"action": "logout", "token": token}, method="GET", timeout=8.0)
     return bool(resp and resp.get("status") == "ok")
 
 
@@ -162,7 +212,11 @@ def set_user_passkey(username: str, passkey: str) -> bool:
     if not username or len(passkey) != 4 or not passkey.isdigit():
         return False
 
-    resp = _php_call({"action": "set_passkey", "username": username, "passkey": passkey}, method="POST")
+    resp = _php_call({"action": "set_passkey", "username": username, "passkey": passkey}, method="POST", timeout=10.0)
+    # Invalidate session cache for user so has_passkey updates
+    for tok, (u, _) in list(_SESSION_CACHE.items()):
+        if u.get("username") == username:
+            _SESSION_CACHE.pop(tok, None)
     return bool(resp and resp.get("status") == "ok")
 
 
@@ -173,7 +227,7 @@ def verify_user_passkey(username: str, passkey: str) -> bool:
     if not username or not passkey:
         return False
 
-    resp = _php_call({"action": "verify_passkey", "username": username, "passkey": passkey}, method="POST")
+    resp = _php_call({"action": "verify_passkey", "username": username, "passkey": passkey}, method="POST", timeout=10.0)
     return bool(resp and resp.get("status") == "ok" and resp.get("verified"))
 
 
@@ -188,7 +242,7 @@ def get_user_profile(username: str) -> Optional[Dict[str, Any]]:
 
 
 def update_user_profile(username: str, display_name: Optional[str] = None, avatar: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Update profile on external PHP server."""
+    """Update profile on external PHP server and invalidate session cache."""
     username = username.strip().lower()
     payload = {
         "action": "update_profile",
@@ -196,9 +250,14 @@ def update_user_profile(username: str, display_name: Optional[str] = None, avata
         "display_name": (display_name or "").strip(),
         "avatar": (avatar or "").strip(),
     }
-    resp = _php_call(payload, method="POST")
+    resp = _php_call(payload, method="POST", timeout=12.0)
     if resp and resp.get("status") == "ok" and resp.get("user"):
-        return resp["user"]
+        user = resp["user"]
+        # Update session cache
+        for tok, (u, _) in list(_SESSION_CACHE.items()):
+            if u.get("username") == username:
+                _SESSION_CACHE[tok] = (user, time.time())
+        return user
     return None
 
 
@@ -208,36 +267,46 @@ def get_all_users(current_user: Optional[str] = None) -> List[Dict[str, Any]]:
     if current_user:
         params["current_user"] = current_user.strip().lower()
 
-    resp = _php_call(params, method="GET")
+    resp = _php_call(params, method="GET", timeout=12.0)
     if resp and resp.get("status") == "ok" and isinstance(resp.get("users"), list):
         return resp["users"]
     return []
 
 
 # ─────────────────────────────────────────────────────────────
-# Presence Tracking via External PHP Server
+# Presence Tracking via External PHP Server & Fast Memory Cache
 # ─────────────────────────────────────────────────────────────
 def update_user_presence(user_key: str, last_seen_str: Optional[str] = None) -> bool:
-    """Sync presence to external PHP server."""
+    """Sync presence to memory cache and external PHP server."""
     if not user_key:
         return False
     user_key = user_key.strip().lower()
     if not last_seen_str:
         last_seen_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
-    resp = _php_call({"action": "presence_update", "user": user_key, "last_seen": last_seen_str}, method="POST", timeout=6)
+    _PRESENCE_CACHE[user_key] = (last_seen_str, time.time())
+    resp = _php_call({"action": "presence_update", "user": user_key, "last_seen": last_seen_str}, method="POST", timeout=8.0)
     return bool(resp and resp.get("status") == "ok")
 
 
 def get_user_presence(user_key: str) -> Optional[str]:
-    """Retrieve last seen from external PHP server."""
+    """Retrieve last seen from memory cache or external PHP server."""
     if not user_key:
         return None
     user_key = user_key.strip().lower()
-    resp = _php_call({"action": "presence_get", "user": user_key}, method="GET", timeout=6)
-    if resp and resp.get("status") == "ok":
-        return resp.get("last_seen")
-    return None
+
+    cached = _PRESENCE_CACHE.get(user_key)
+    if cached:
+        last_seen, ts = cached
+        if time.time() - ts < PRESENCE_CACHE_TTL:
+            return last_seen
+
+    resp = _php_call({"action": "presence_get", "user": user_key}, method="POST", timeout=8.0)
+    if resp and resp.get("status") == "ok" and resp.get("last_seen"):
+        ls = resp["last_seen"]
+        _PRESENCE_CACHE[user_key] = (ls, time.time())
+        return ls
+    return cached[0] if cached else None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -254,9 +323,26 @@ def save_message(
     reply_to: Optional[Any] = None,
     client_msg_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Save message directly to external PHP server."""
+    """Save message to local memory buffer immediately and persist to external PHP server."""
     sender = sender.strip().lower()
     recipient = recipient.strip().lower()
+
+    local_msg = {
+        "id": client_msg_id or f"local_{int(time.time()*1000)}",
+        "sender": sender,
+        "recipient": recipient,
+        "msg_type": msg_type,
+        "text_content": text_content,
+        "media_duration": media_duration,
+        "client_time": client_time,
+        "seen": bool(seen),
+        "reply_to": reply_to,
+        "client_msg_id": client_msg_id,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+    # Buffer immediately in memory
+    _buffer_recent_message(local_msg)
 
     payload = {
         "action": "send",
@@ -273,51 +359,78 @@ def save_message(
         "client_msg_id": client_msg_id,
     }
 
-    resp = _php_call(payload, method="POST", timeout=20)
+    resp = _php_call(payload, method="POST", timeout=20.0)
     if resp and resp.get("status") == "ok" and "data" in resp:
-        return resp["data"]
+        server_data = resp["data"]
+        # Update memory buffer with persisted DB id
+        local_msg["id"] = server_data.get("id", local_msg["id"])
+        _buffer_recent_message(local_msg)
+        return server_data
 
-    return {
-        "sender": sender,
-        "recipient": recipient,
-        "msg_type": msg_type,
-        "text_content": text_content,
-        "media_duration": media_duration,
-        "client_time": client_time,
-        "seen": seen,
-        "reply_to": reply_to,
-        "client_msg_id": client_msg_id,
-    }
+    return local_msg
 
 
 def mark_messages_seen(sender: str, recipient: str, msg_ids: Optional[List[Any]] = None) -> bool:
-    """Mark messages seen on external PHP server."""
+    """Mark messages seen in memory buffer and on external PHP server."""
+    sender = sender.strip().lower()
+    recipient = recipient.strip().lower()
+
+    # Update in memory buffer
+    pair_key = _get_pair_key(sender, recipient)
+    if pair_key in _RECENT_MESSAGES_BUFFER:
+        for m in _RECENT_MESSAGES_BUFFER[pair_key]:
+            if m.get("sender") == sender and m.get("recipient") == recipient:
+                if not msg_ids or str(m.get("id")) in [str(x) for x in msg_ids] or str(m.get("client_msg_id")) in [str(x) for x in msg_ids]:
+                    m["seen"] = True
+
     payload = {
         "action": "seen",
-        "sender": sender.strip().lower(),
-        "recipient": recipient.strip().lower(),
+        "sender": sender,
+        "recipient": recipient,
         "ids": msg_ids or [],
     }
-    resp = _php_call(payload, method="POST", timeout=8)
+    resp = _php_call(payload, method="POST", timeout=8.0)
     return bool(resp and resp.get("status") == "ok")
 
 
 def get_conversation(user1: str, user2: str, limit: int = 250) -> List[Dict[str, Any]]:
-    """Retrieve message history directly from external PHP server."""
+    """Retrieve message history from external PHP server seamlessly merged with recent memory buffer."""
     user1 = user1.strip().lower()
     user2 = user2.strip().lower()
 
-    resp = _php_call({"action": "get", "user1": user1, "user2": user2}, method="GET", timeout=12)
+    resp = _php_call({"action": "get", "user1": user1, "user2": user2}, method="GET", timeout=12.0)
+    remote_msgs = []
     if resp and resp.get("status") == "ok" and isinstance(resp.get("messages"), list):
-        return resp["messages"]
-    return []
+        remote_msgs = resp["messages"]
+
+    # Index remote messages by client_msg_id and integer id
+    known_cids = set()
+    known_ids = set()
+    for m in remote_msgs:
+        if m.get("client_msg_id"):
+            known_cids.add(str(m["client_msg_id"]))
+        if m.get("id"):
+            known_ids.add(str(m["id"]))
+
+    # Merge any buffered messages not yet present in PHP response
+    pair_key = _get_pair_key(user1, user2)
+    buffered = _RECENT_MESSAGES_BUFFER.get(pair_key, [])
+    merged = list(remote_msgs)
+
+    for bm in buffered:
+        cid = str(bm.get("client_msg_id") or "")
+        bid = str(bm.get("id") or "")
+        if (cid and cid in known_cids) or (bid and bid in known_ids):
+            continue
+        # Unpersisted or newly buffered message
+        merged.append(dict(bm))
+
+    return merged
 
 
 def clear_conversation(user1: str, user2: str) -> Tuple[bool, int]:
     """
-    SAFELY clear conversation messages ONLY between user1 and user2 on external PHP server.
-    CRITICAL: Protects against clearing other users' chats or entire database!
-    Both participants must be strictly provided.
+    SAFELY clear conversation messages ONLY between user1 and user2 on external PHP server and memory.
     """
     user1 = (user1 or "").strip().lower()
     user2 = (user2 or "").strip().lower()
@@ -326,13 +439,17 @@ def clear_conversation(user1: str, user2: str) -> Tuple[bool, int]:
         logger.warning(f"[CRUD] clear_conversation aborted: both participants required (user1='{user1}', user2='{user2}')")
         return False, 0
 
+    # Clear memory buffer for pair
+    pair_key = _get_pair_key(user1, user2)
+    _RECENT_MESSAGES_BUFFER.pop(pair_key, None)
+
     payload = {
         "action": "clear",
         "user1": user1,
         "user2": user2,
     }
 
-    resp = _php_call(payload, method="POST", timeout=12)
+    resp = _php_call(payload, method="POST", timeout=12.0)
     if resp and resp.get("status") == "ok":
         deleted_count = resp.get("deleted_count", 0)
         logger.info(f"[CRUD] Cleared conversation between {user1} and {user2} on external server (deleted: {deleted_count})")
