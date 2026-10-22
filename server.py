@@ -66,13 +66,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Enforce strict ZERO-CACHE policy: never cache any scripts, styles, html, images, or data
+# Enforce strict 1-hour maximum cache lifetime for scripts, styles, and images to serve live data
 @app.middleware("http")
-async def enforce_zero_cache_policy(request: Request, call_next):
+async def enforce_one_hour_cache_limit(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    path = request.url.path.lower()
+    is_static_or_media = (
+        path.startswith("/static/") or
+        path.endswith((".js", ".css", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".webmanifest"))
+    )
+    if is_static_or_media and path != "/sw.js":
+        response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
     return response
 
 # Include modular API routers
@@ -286,11 +290,7 @@ async def serve_app_js():
     return FileResponse(
         str(STATIC_DIR / "app.js"),
         media_type="application/javascript",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 
@@ -299,11 +299,7 @@ async def serve_pwa_js():
     return FileResponse(
         str(STATIC_DIR / "pwa.js"),
         media_type="application/javascript",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 
@@ -312,11 +308,7 @@ async def serve_style_css():
     return FileResponse(
         str(STATIC_DIR / "style.css"),
         media_type="text/css",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 
@@ -324,11 +316,7 @@ async def serve_style_css():
 async def serve_root():
     return FileResponse(
         str(INDEX_FILE),
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 
@@ -338,9 +326,7 @@ async def serve_sw_js():
         str(BASE_DIR / "sw.js"),
         media_type="application/javascript",
         headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
             "Service-Worker-Allowed": "/",
         },
     )
@@ -352,11 +338,7 @@ async def serve_manifest():
     return FileResponse(
         str(BASE_DIR / "manifest.webmanifest"),
         media_type="application/manifest+json",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
@@ -365,11 +347,7 @@ async def serve_offline_html():
     return FileResponse(
         str(BASE_DIR / "offline.html"),
         media_type="text/html",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
@@ -378,11 +356,7 @@ async def serve_favicon():
     return FileResponse(
         str(BASE_DIR / "favicon.ico"),
         media_type="image/x-icon",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
