@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <!-- App Background Squircle -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)"/>
+  <rect x="2" y="2" width="508" height="254" rx="113" fill="url(#rimGrad)"/>
+  
+  <!-- Chat Bubble Body -->
+  <g filter="url(#shadow)">
+    <circle cx="256" cy="246" r="142" fill="#FFFFFF"/>
+    <!-- Tail -->
+    <path d="M152 322 L102 396 C100 399 104 403 108 401 L224 370 Z" fill="#FFFFFF"/>
+    <circle cx="106" cy="398" r="6" fill="#FFFFFF"/>
+  </g>
+
+  <!-- 3 Pulsing Chat Dots -->
+  <circle cx="202" cy="246" r="21" fill="#8B5CF6"/>
+  <circle cx="256" cy="246" r="21" fill="#7C3AED"/>
+  <circle cx="310" cy="246" r="21" fill="#6D28D9"/>
+</svg>

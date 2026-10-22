@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import STATIC_DIR, INDEX_FILE, PHP_STORAGE_URL
+from app.config import BASE_DIR, STATIC_DIR, INDEX_FILE, PHP_STORAGE_URL
 from app.database import init_db
 from app.auth import (
     extract_token_from_request,
@@ -281,6 +281,15 @@ async def serve_app_js():
     )
 
 
+@app.get("/pwa.js")
+async def serve_pwa_js():
+    return FileResponse(
+        str(STATIC_DIR / "pwa.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 @app.get("/style.css")
 async def serve_style_css():
     return FileResponse(
@@ -296,6 +305,47 @@ async def serve_root():
         str(INDEX_FILE),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
+
+
+@app.get("/sw.js")
+async def serve_sw_js():
+    return FileResponse(
+        str(BASE_DIR / "sw.js"),
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.get("/manifest.webmanifest")
+@app.get("/manifest.json")
+async def serve_manifest():
+    return FileResponse(
+        str(BASE_DIR / "manifest.webmanifest"),
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/offline.html")
+async def serve_offline_html():
+    return FileResponse(
+        str(BASE_DIR / "offline.html"),
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    return FileResponse(
+        str(BASE_DIR / "favicon.ico"),
+        media_type="image/x-icon",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
 
 
 if __name__ == "__main__":

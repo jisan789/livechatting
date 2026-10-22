@@ -3019,3 +3019,260 @@ button, input, textarea, select {
   user-select: none;
   opacity: 0.85;
 }
+
+/* ══════════════════════════════════════════════════
+   PROGRESSIVE WEB APP (PWA) STYLES
+   ══════════════════════════════════════════════════ */
+
+/* 1. Header Action Install Button */
+.pwa-install-btn {
+  color: var(--apple-purple-dark, #7C3AED) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pwa-install-btn:hover {
+  background: rgba(139, 92, 246, 0.14) !important;
+  transform: translateY(-1px);
+}
+.pwa-install-btn:active {
+  transform: scale(0.94);
+}
+
+/* 2. Smart Install Pill Banner */
+.pwa-install-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-130%);
+  width: calc(100% - 32px);
+  max-width: 440px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px -10px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(139, 92, 246, 0.15);
+  padding: 12px 14px 12px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10000;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+}
+
+.pwa-install-banner.active {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pwa-banner-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  flex-shrink: 0;
+  box-shadow: 0 6px 14px rgba(124, 58, 237, 0.32);
+}
+
+.pwa-banner-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pwa-banner-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 2px;
+  letter-spacing: -0.01em;
+}
+
+.pwa-banner-desc {
+  font-size: 11.5px;
+  color: #64748B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pwa-banner-btn-install {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 11px;
+  border: none;
+  background: linear-gradient(180deg, #8B5CF6 0%, #7C3AED 100%);
+  color: #FFFFFF;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pwa-banner-btn-install:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(124, 58, 237, 0.38);
+}
+
+.pwa-banner-btn-install:active {
+  transform: scale(0.96);
+}
+
+.pwa-banner-btn-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(148, 163, 184, 0.18);
+  color: #64748B;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pwa-banner-btn-close:hover {
+  background: rgba(148, 163, 184, 0.3);
+  color: #0F172A;
+}
+
+/* 3. Auth Overlay Install Trigger */
+.auth-pwa-wrap {
+  text-align: center;
+  margin-top: 18px;
+}
+
+.auth-pwa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7C3AED;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-pwa-btn:hover {
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+/* 4. Instructions Fallback Modal */
+.pwa-instructions-body {
+  padding: 16px 20px 24px;
+}
+
+.pwa-instructions-intro {
+  font-size: 13px;
+  color: #64748B;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.pwa-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.pwa-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(248, 250, 252, 0.7);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.pwa-step-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #7C3AED;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pwa-step-text {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.pwa-step-text strong {
+  color: #0F172A;
+}
+
+.pwa-gotit-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 13px;
+  border: none;
+  background: linear-gradient(180deg, #8B5CF6 0%, #7C3AED 100%);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.28);
+  transition: transform 0.15s ease;
+}
+
+.pwa-gotit-btn:active {
+  transform: scale(0.98);
+}
+
+/* 5. Standalone Display Mode Adjustments */
+@media all and (display-mode: standalone), (display-mode: window-controls-overlay) {
+  html, body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pwa-install-banner,
+  .pwa-install-btn,
+  .pwa-profile-install-btn,
+  .auth-pwa-wrap {
+    display: none !important;
+  }
+}
+
+/* Mobile adjustments */
+@media (max-width: 600px) {
+  .pwa-install-banner {
+    top: auto;
+    bottom: 20px;
+    transform: translateX(-50%) translateY(130%);
+  }
+  .pwa-install-banner.active {
+    transform: translateX(-50%) translateY(0);
+  }
+}
+

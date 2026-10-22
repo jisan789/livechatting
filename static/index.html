@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <title>LiveChat</title>
   <meta name="description" content="Professional real-time chat application with iconic Apple liquid glassmorphism, live keystroke streaming, and secure passcode lock.">
+  
+  <!-- Progressive Web App (PWA) Manifest & Meta Tags -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#7C3AED" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LiveChat">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png">
+  <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <meta name="msapplication-TileColor" content="#7C3AED">
+  <meta name="msapplication-TileImage" content="/static/icons/icon-192.png">
+  <meta name="msapplication-tap-highlight" content="no">
+
   <link rel="stylesheet" href="static/style.css?v=22.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,6 +72,17 @@
         </div>
 
         <div class="header-actions-capsule">
+          <!-- Install App (PWA Smart Button) -->
+          <button class="action-icon-btn pwa-install-btn" id="headerInstallBtn" aria-label="Install App" title="Install LiveChat App" style="display: none;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </button>
+
+          <div class="header-action-divider" id="headerInstallDivider" style="display: none;" aria-hidden="true"></div>
+
           <!-- Write / LiveDraw -->
           <a href="https://livedrawing.onrender.com/" target="_blank" rel="noopener noreferrer" class="action-icon-btn" id="chatsLiveDrawingBtn" aria-label="Open LiveDraw" title="LiveDraw / Write">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -73,6 +102,23 @@
           </button>
         </div>
       </header>
+
+      <!-- PWA Smart Install Notification Banner -->
+      <aside class="pwa-install-banner" id="pwaInstallBanner" role="alert" aria-label="Install App Banner">
+        <div class="pwa-banner-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+          </svg>
+        </div>
+        <div class="pwa-banner-content">
+          <div class="pwa-banner-title">Install LiveChat App</div>
+          <div class="pwa-banner-desc">Fast, standalone chat on desktop & mobile</div>
+        </div>
+        <div class="pwa-banner-actions">
+          <button type="button" class="pwa-banner-btn-install" id="pwaBannerInstallBtn">Install</button>
+          <button type="button" class="pwa-banner-btn-close" id="pwaBannerCloseBtn" aria-label="Dismiss">&times;</button>
+        </div>
+      </aside>
 
       <!-- Glassmorphic Search Bar -->
       <div class="chats-search-bar-wrap">
@@ -474,6 +520,18 @@
             <span>Create Account</span>
           </button>
         </form>
+
+        <!-- Install LiveChat PWA Trigger on Auth Screen -->
+        <div class="auth-pwa-wrap">
+          <button type="button" class="auth-pwa-btn" id="authInstallBtn" style="display: none;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Install LiveChat App</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -579,6 +637,16 @@
 
           <button type="button" class="profile-action-btn secondary" id="profileSaveBtn">Save Changes</button>
 
+          <!-- PWA Install Button in Profile Modal -->
+          <button type="button" class="profile-action-btn secondary pwa-profile-install-btn" id="profileInstallBtn" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Install LiveChat App</span>
+          </button>
+
           <div class="sheet-divider"></div>
 
           <button type="button" class="profile-action-btn primary" id="profileChangePasskeyBtn">
@@ -610,6 +678,80 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════
+       PWA INSTALLATION INSTRUCTIONS MODAL (FALLBACK)
+       ══════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="pwaFallbackModal" style="display: none;">
+    <div class="sheet-card" style="max-width: 440px;">
+      <header class="sheet-header">
+        <h2 class="sheet-title">Install LiveChat</h2>
+        <button type="button" class="sheet-close-btn" id="pwaFallbackCloseBtn" aria-label="Close">&times;</button>
+      </header>
+
+      <div class="pwa-instructions-body">
+        <!-- Android Instructions -->
+        <div id="pwaStepAndroid" style="display: none;">
+          <p class="pwa-instructions-intro">Install LiveChat onto your Android device home screen for fullscreen messaging with instant alerts:</p>
+          <div class="pwa-steps-list">
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">1</div>
+              <div class="pwa-step-text">Tap the browser menu <strong>⋮</strong> (three vertical dots) in the top-right or navigation bar.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">2</div>
+              <div class="pwa-step-text">Select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong> from the menu options.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">3</div>
+              <div class="pwa-step-text">Tap <strong>Install</strong> to confirm. LiveChat will appear alongside your native apps!</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Windows / Desktop Instructions -->
+        <div id="pwaStepWindows" style="display: none;">
+          <p class="pwa-instructions-intro">Install LiveChat as a standalone Windows desktop app in Microsoft Edge or Google Chrome:</p>
+          <div class="pwa-steps-list">
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">1</div>
+              <div class="pwa-step-text">Look for the <strong>App Available (⊕ or 💻)</strong> icon in your browser address bar on the far right.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">2</div>
+              <div class="pwa-step-text">Or open browser menu <strong>⋯ / ⋮</strong> &rarr; <strong>Apps</strong> &rarr; <strong>"Install LiveChat"</strong>.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">3</div>
+              <div class="pwa-step-text">Click <strong>Install</strong> to launch LiveChat in its own distraction-free standalone window.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- iOS Instructions -->
+        <div id="pwaStepIOS" style="display: none;">
+          <p class="pwa-instructions-intro">Add LiveChat to your iPhone / iPad home screen:</p>
+          <div class="pwa-steps-list">
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">1</div>
+              <div class="pwa-step-text">Tap the <strong>Share</strong> button (box with upward arrow) in Safari's bottom toolbar.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">2</div>
+              <div class="pwa-step-text">Scroll down and tap <strong>"Add to Home Screen"</strong>.</div>
+            </div>
+            <div class="pwa-step-item">
+              <div class="pwa-step-badge">3</div>
+              <div class="pwa-step-text">Tap <strong>Add</strong> in the top right corner.</div>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" class="pwa-gotit-btn" id="pwaFallbackGotItBtn">Got It</button>
+      </div>
+    </div>
+  </div>
+
   <script src="static/app.js?v=22.0"></script>
+  <script src="static/pwa.js?v=1.0"></script>
 </body>
 </html>
