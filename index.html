@@ -105,7 +105,24 @@
 
       <!-- Scrollable Conversations List -->
       <div class="chats-scroll-body">
-        <!-- Bangla Announcement Notice Card -->
+        <div class="chats-section-header">
+          <span id="chatsSectionTitle">Direct Messages</span>
+          <span class="chats-count-badge" id="chatsCountBadge">0</span>
+        </div>
+
+        <div class="chats-list" id="chatsListContainer">
+          <!-- Chat cards dynamically rendered by app.js -->
+        </div>
+
+        <div class="chats-empty-state" id="chatsEmptyState" style="display: none;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <p id="chatsEmptyText">No conversations yet</p>
+          <button type="button" class="empty-state-cta-btn" id="chatsEmptyNewBtn">Start a new conversation</button>
+        </div>
+
+        <!-- Bangla Announcement Notice Card (Placed below the user list) -->
         <div class="bangla-notice-card" id="banglaGalleryNotice" role="region" aria-label="বিজ্ঞপ্তি">
           <div class="bangla-notice-icon-box" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
@@ -123,23 +140,6 @@
               খুব শীঘ্রই এখানে একটি বিশেষ গ্যালারি যুক্ত করা হবে, যেখানে আমাদের সব স্মৃতি ও ছবি সংরক্ষিত থাকবে।
             </p>
           </div>
-        </div>
-
-        <div class="chats-section-header">
-          <span id="chatsSectionTitle">Direct Messages</span>
-          <span class="chats-count-badge" id="chatsCountBadge">0</span>
-        </div>
-
-        <div class="chats-list" id="chatsListContainer">
-          <!-- Chat cards dynamically rendered by app.js -->
-        </div>
-
-        <div class="chats-empty-state" id="chatsEmptyState" style="display: none;">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-          </svg>
-          <p id="chatsEmptyText">No conversations yet</p>
-          <button type="button" class="empty-state-cta-btn" id="chatsEmptyNewBtn">Start a new conversation</button>
         </div>
 
         <!-- Simple Polite Developer Info -->
