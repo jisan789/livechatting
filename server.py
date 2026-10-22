@@ -66,6 +66,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Enforce strict 1-hour maximum cache lifetime for scripts, styles, and images to serve live data
+@app.middleware("http")
+async def enforce_one_hour_cache_limit(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path.lower()
+    is_static_or_media = (
+        path.startswith("/static/") or
+        path.endswith((".js", ".css", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".webmanifest"))
+    )
+    if is_static_or_media and path != "/sw.js":
+        response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+    return response
+
 # Include modular API routers
 app.include_router(auth_router.router)
 app.include_router(users_router.router)

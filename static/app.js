@@ -277,12 +277,14 @@ function showAuthOverlay() {
   if (pinOverlay) pinOverlay.classList.remove('unlocked');
   if (authOverlay) {
     authOverlay.style.display = 'flex';
+    authOverlay.querySelectorAll('input, button').forEach(el => el.removeAttribute('disabled'));
   }
 }
 
 function hideAuthOverlay() {
   if (authOverlay) {
     authOverlay.style.display = 'none';
+    authOverlay.querySelectorAll('input').forEach(el => el.setAttribute('disabled', 'true'));
   }
 }
 
@@ -3836,6 +3838,9 @@ function setupKeyboardUIHandling() {
       chatInput.blur();
       return;
     }
+    chatInput.setAttribute('autocomplete', 'off');
+    chatInput.setAttribute('data-form-type', 'other');
+    chatInput.setAttribute('data-lpignore', 'true');
     inputPill.classList.add('focused');
     setTimeout(scrollToBottom, 150);
   });

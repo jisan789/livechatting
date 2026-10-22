@@ -1,16 +1,17 @@
 /**
  * LiveChat Service Worker
- * Provides PWA installability, safe app shell caching, and graceful offline fallback.
+ * Ensures live data streaming and enforces a strict 1-hour maximum cache lifetime.
  * 
- * SECURITY & PRIVACY:
- * - NEVER caches WebSocket, POST requests, or sensitive authentication/chat API endpoints.
- * - Network-First for HTML navigation to ensure users always receive the latest deployment.
- * - Stale-While-Revalidate for static visual assets (CSS, JS, fonts, icons).
+ * CACHING RULES:
+ * - NEVER caches WebSockets, POST requests, chat messages, or private API data.
+ * - Network-First for ALL requests (HTML, scripts, and images) to always serve live data.
+ * - Cache fallback is strictly capped at 1 hour (3600 seconds). Any asset older than 1 hour is evicted.
  */
 
-const CACHE_NAME = 'livechat-shell-v1.0.0';
+const CACHE_NAME = 'livechat-v2.0.0';
+const MAX_CACHE_AGE_MS = 60 * 60 * 1000; // 1 hour (3600s)
 
-// Essential assets for the standalone shell
+// Baseline app shell for initial offline installability
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -18,31 +19,49 @@ const PRECACHE_ASSETS = [
   '/app.js',
   '/manifest.webmanifest',
   '/offline.html',
-  '/static/style.css?v=22.0',
-  '/static/app.js?v=22.0',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
-  '/static/icons/icon-192-maskable.png',
-  '/static/icons/icon-512-maskable.png',
   '/static/icons/favicon-32.png',
   '/static/icons/icon.svg'
 ];
 
-// Paths that must NEVER be cached by the service worker
-const EXCLUDED_PATTERNS = [
+// Patterns that MUST NEVER be cached
+const NEVER_CACHE_PATTERNS = [
   '/api/',
   '/ws/',
   '/ping',
   '/health',
   'reciever.php',
-  'chatdatabase'
+  'chatdatabase',
+  'dicebear.com'
 ];
 
-// Install: precache app shell and activate immediately
+// Helper: attach timestamp header to cached response
+function addTimestamp(response) {
+  const headers = new Headers(response.headers);
+  headers.set('sw-cache-time', Date.now().toString());
+  return response.blob().then((blob) => {
+    return new Response(blob, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headers
+    });
+  });
+}
+
+// Helper: check if a cached response has expired (> 1 hour old)
+function isExpired(cachedResponse) {
+  if (!cachedResponse) return true;
+  const timeStr = cachedResponse.headers.get('sw-cache-time');
+  if (!timeStr) return false; // precached item on first install
+  const age = Date.now() - parseInt(timeStr, 10);
+  return age > MAX_CACHE_AGE_MS;
+}
+
+// Install: precache baseline shell and skip waiting
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // Use cache.addAll with individual catch so an optional asset failure doesn't break install
       return Promise.allSettled(
         PRECACHE_ASSETS.map((url) =>
           cache.add(url).catch((err) => {
@@ -54,14 +73,14 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: purge outdated caches and take control of all clients
+// Activate: purge obsolete caches and take immediate control
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[SW] Deleting obsolete cache:', key);
+            console.log('[SW] Evicting outdated cache:', key);
             return caches.delete(key);
           }
         })
@@ -70,7 +89,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: intelligent strategy with zero security/data pollution
+// Fetch: Network-First with strict 1-hour expiration
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
@@ -81,42 +100,39 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Ignore non-http/https schemes (e.g. chrome-extension:)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return;
   }
 
-  // Never cache API, WebSockets, or external PHP storage requests
-  const isExcluded = EXCLUDED_PATTERNS.some((pattern) => url.pathname.includes(pattern) || url.href.includes(pattern));
+  // Never cache API, WebSockets, or live dynamic data
+  const isExcluded = NEVER_CACHE_PATTERNS.some((pattern) => url.pathname.includes(pattern) || url.href.includes(pattern));
   if (isExcluded) {
-    return; // Pass straight to network
+    return; // Pass straight to live network
   }
 
-  // 1. Navigation requests (HTML pages): Network-First with offline.html fallback
+  // 1. Navigation requests (HTML): Always Live Network First
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then((networkResponse) => {
-          // If network returns valid response, update cache for root
+        .then(async (networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
-            });
+            const stamped = await addTimestamp(networkResponse.clone());
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, stamped);
           }
           return networkResponse;
         })
         .catch(async () => {
           // Offline fallback
-          const cachedResponse = await caches.match(request);
-          if (cachedResponse) {
-            return cachedResponse;
+          const cached = await caches.match(request);
+          if (cached && !isExpired(cached)) {
+            return cached;
           }
           const offlinePage = await caches.match('/offline.html');
           if (offlinePage) {
             return offlinePage;
           }
-          return new Response('You are offline. Please check your internet connection.', {
+          return new Response('You are offline. Active internet is required for real-time LiveChat.', {
             status: 503,
             statusText: 'Service Unavailable',
             headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
@@ -126,41 +142,51 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Static shell assets (CSS, JS, Fonts, Icons): Stale-While-Revalidate
-  const isStaticAsset =
+  // 2. Scripts, Styles, and Images: Network-First with max 1-hour cache TTL
+  const isCacheableStatic =
     url.pathname.startsWith('/static/') ||
-    url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.jpeg') ||
+    url.pathname.endsWith('.webp') ||
     url.pathname.endsWith('.svg') ||
     url.pathname.endsWith('.ico') ||
-    url.pathname.endsWith('.webmanifest') ||
-    url.hostname.includes('fonts.googleapis.com') ||
-    url.hostname.includes('fonts.gstatic.com');
+    url.pathname.endsWith('.webmanifest');
 
-  if (isStaticAsset) {
+  if (isCacheableStatic) {
     event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        const fetchPromise = fetch(request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              const responseClone = networkResponse.clone();
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(request, responseClone);
-              });
+      fetch(request)
+        .then(async (networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            // Save to cache with timestamp
+            const stamped = await addTimestamp(networkResponse.clone());
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, stamped);
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          // Network failed (offline) — use cache ONLY if less than 1 hour old
+          const cached = await caches.match(request);
+          if (cached) {
+            if (!isExpired(cached)) {
+              return cached;
             }
-            return networkResponse;
-          })
-          .catch(() => cachedResponse);
-
-        return cachedResponse || fetchPromise;
-      })
+            // More than 1 hour old -> evict immediately!
+            const cache = await caches.open(CACHE_NAME);
+            cache.delete(request);
+          }
+          return new Response('Asset unavailable offline (>1 hour cache expired).', {
+            status: 504,
+            statusText: 'Gateway Timeout'
+          });
+        })
     );
     return;
   }
 
-  // Default: Network with cache fallback
-  event.respondWith(
-    fetch(request).catch(() => caches.match(request))
-  );
+  // Default: Live network fetch
+  event.respondWith(fetch(request));
 });
